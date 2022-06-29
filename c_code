@@ -1,0 +1,1316 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <ctime>
+#include <cstdlib>
+#include <assert.h>
+#include <conio.h>
+/////////////////////////////////////////////////////////////////////
+//	TODO:	MONSTERの移動											*
+//			MONSTERとの戦闘											*
+//			EXP(経験値)管理
+//			HP（体力）管理											*
+//			Str（攻撃力）管理
+//			Arm（防御力）管理
+//			TRAP（罠）に出会って、何らかのペナルティを受ける
+//			WEPON(何らかの武器)を拾って、攻撃力をアップさせる
+//			ARMER(鎧)を拾って、防御力をアップさせる
+//			FOOD（食べ物）を拾って、体力をアップさせる				*
+//			WAND（魔法の杖）を拾う
+//			RING（魔法の指輪）を拾う
+//			PAPER（紙切れ or 魔法の巻物)を拾う
+//			FLASK（魔法の薬がはいったフラスコ）
+/////////////////////////////////////////////////////////////////////
+#define	ESC_KEY		0x1b
+#define	UP_KEY		0x1001
+#define	DOWN_KEY	0x1002
+#define	RIGHT_KEY	0x1003
+#define	LEFT_KEY	0x1004
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+//#define	DEBUG_DISP_ROOM_NUMBER	(10000)
+
+typedef	std::vector<std::vector<int>>	DungeonMap;
+
+class Position {
+public:
+	int x, y;
+
+ 	Position(){
+		this->x = -1;
+		this->y = -1;
+	}
+ 	Position(int x, int y){
+		this->x = x;
+		this->y = y;
+	}
+};
+
+
+class Character{
+private:
+	Position	pos;
+	int 		symbol;
+	int	hp;				// 体力
+	int	maxhp;			// 体力最大値
+	int	exp;			// 経験値
+	int	str;			// 攻撃力
+	int	maxStr;			// 攻撃力最大値
+	int	arm;			// 防御力
+
+public:
+	Character(int symbol,Position & pos){
+		this->symbol = symbol;
+		this->pos=pos;
+		hp = 10;
+		maxhp = 10;
+		exp = 0;
+		str = 5;
+		maxStr = 20;
+		arm = 0;
+	}
+
+	int getMaxHP(){
+		return this->maxhp;
+	}
+	int getHP(){
+		return this->hp;
+	}
+	void addHP(int val){
+		if(this->hp + val > maxhp)
+		{
+			this->hp = maxhp;
+		}
+		else{
+			this->hp += val;
+		}
+	}
+
+	int getMaxstr(){
+		return this->maxStr;
+	}
+	int getstr(){
+		return this->str;
+	}
+	void addstr(int val){
+		if(this->str + val > maxStr)
+		{
+			this->str = maxStr;
+		}
+		else{
+			this->str += val;
+		}
+	}
+
+	int getSymbol(){
+		return this->symbol;
+	}
+
+	Position getPosition(){
+		return pos;
+	}
+
+	bool	isThere(int x, int y)
+	{
+		if(this->pos.x == x && this->pos.y ==y)
+			return true;
+
+		return false;
+	}
+
+	bool	attack(Character & character)
+	{
+		if(hp > 0)
+			hp--;
+
+		if(hp == 0)
+			return true;
+
+		return false;
+	}
+
+	void move(Position & pos){
+		this->pos = pos;
+	}
+};
+
+class Player:public Character{
+public:
+	Player(int symbol,Position & pos):Character(symbol,pos){
+		gold = 0;
+	}
+	int	gold;			// 金塊の個数
+};
+
+
+class RogueItem {
+private:
+	Position	pos;
+	int 		symbol;
+	std::string	message;
+	bool		isexist;
+
+public:
+
+	RogueItem(int symbol,Position & pos,std::string	& message){
+		this->symbol = symbol;
+		this->pos=pos;
+		this->message = message;
+		this->isexist = true;
+	}
+
+	virtual	void	action(Player & player)	= 0;	// プレイヤーに影響するアクション
+
+	int getSymbol(){
+		return this->symbol;
+	}
+
+	void notExist(){
+		isexist = false;
+	}
+
+	std::string  getMessage(){
+		return this->message;
+	}
+
+	Position getPosition(){
+		return pos;
+	}
+
+	bool	isThere(int x, int y)
+	{
+		if(!isexist)
+			return	false;
+		if(this->pos.x == x && this->pos.y ==y)
+			return true;
+
+		return false;
+	}
+};
+
+class Gold:public RogueItem{
+public:
+	int	value;
+
+	Gold(int symbol,Position & pos,std::string	& message,int value):RogueItem(symbol,pos,message)
+	{
+		this->value = value;
+	}
+
+	void	action(Player & player){
+		notExist();
+		player.gold += value;
+	}
+};
+
+class Food:public RogueItem{
+public:
+	int	value;
+
+	Food(int symbol,Position & pos,std::string	& message,int value):RogueItem(symbol,pos,message)
+	{
+		this->value = value;
+	}
+
+	void	action(Player & player){
+		notExist();
+		player.addHP(value);
+	}
+};
+
+class Weapon:public RogueItem{
+public:
+	int	value;
+
+	Weapon(int symbol,Position & pos,std::string	& message,int value):RogueItem(symbol,pos,message)
+	{
+		this->value = value;
+	}
+
+	void	action(Player & player){
+		notExist();
+		player.addstr(value);
+	}
+};
+
+class Monster:public Character{
+public:
+	Monster(int symbol,Position & pos,int roomNumber,int arrow):Character(symbol,pos){
+		this->roomNumber = roomNumber;
+		this->arrow = arrow;
+	}
+	int	roomNumber;
+	int	arrow;
+};
+
+
+class Rect {
+public:
+	int lx, ly, hx, hy;
+
+ 	Rect(int lx, int ly, int hx, int hy){
+		this->lx = lx;
+		this->ly = ly;
+		this->hx = hx;
+		this->hy = hy;
+	}
+};
+
+class Area : public Rect {
+public:
+	Rect	*room;
+	bool	done_split_v;
+	bool	done_split_h;
+
+	Area(int lx, int ly, int hx, int hy) : Rect(lx, ly, hx, hy){
+		this->done_split_v = false;
+		this->done_split_h = false;
+	}
+};
+
+class Door {
+public:
+	int	lx;
+	int	ly;
+
+	Door(int x,int y)
+	{
+		this->lx = x;
+		this->ly = y;
+	}
+};
+
+typedef	std::vector<Door>	Doors;
+
+class Connect {
+public:
+	int v_or_h;
+	Area *area0;
+	Area *area1;
+
+	Connect(int v_or_h,Area *area0,Area *area1){
+		this->v_or_h = v_or_h;
+		this->area0 = area0;
+		this->area1 = area1;
+	}
+};
+
+class DungeonMaker {
+public:
+	enum {
+		HIDDEN = 0,		// 非表示
+		DISPLAY,		// 表示
+	};
+	enum {
+		OUTER = 0,		// 外							「 」
+		ROOM_V,			// 部屋の壁（縦）				「|」
+		ROOM_H,			// 部屋の壁（横）				「-」
+		ROOM_DOOR,		// 部屋の扉						「+」
+		ROOM_FLOOR,		// 部屋の床						「.」
+		CORRIDOR,		// 廊下							「#」
+		STAIRS,			// 階段							「%」
+		GOLD,			// 金塊							「*」
+		WEPON,			// 何らかの武器					「)」
+		ARMER,			// 鎧							「]」
+		FOOD,			// 食べ物						「:」
+		TRAP,			// 罠							「^」
+		WAND,			// 魔法の杖						「/」
+		RING,			// 魔法の指輪					「=」
+		PAPER,			// 紙切れ or 魔法の巻物			「?」
+		FLASK,			// 魔法の薬がはいったフラスコ	「!」
+		PLAYER,			// 冒険者						「@」
+		MONSTER_A,		// 洞窟の住人(怪物)				「A」
+		MONSTER_B,		// 洞窟の住人(怪物)				「B」
+		MONSTER_C,		// 洞窟の住人(怪物)				「C」
+		MONSTER_D,		// 洞窟の住人(怪物)				「D」
+	};
+
+	int allMonsterCount;
+
+	DungeonMaker(int hight=30,int width=100)
+	{
+		MAP_W = width;
+		MAP_H = hight;
+		for (int j = 0; j < MAP_W; j++) {
+			map.push_back(std::vector<int>(MAP_H,OUTER));
+			disp_mask.push_back(std::vector<int>(MAP_H,HIDDEN));
+		}
+		allMonsterCount = 0;
+	}
+
+	~DungeonMaker()
+	{
+		discard();
+	}
+
+	int	getHight()
+	{
+		return MAP_H;
+	}
+
+	int	getWidth()
+	{
+		return MAP_W;
+	}
+
+	void generate()
+	{
+		init();
+		area_split(area_add(0, 0, MAP_W - 1, MAP_H - 1));
+		room_make();
+		connect_more();
+		deploy();
+		make_stairs();
+		placeGolds();
+		placeFoods();
+		placeWeapons();
+		placeMonsters();
+	}
+
+	DungeonMap & getMap()
+	{
+		return	map;
+	}
+
+	DungeonMap & getDispMap()
+	{
+		return	disp_mask;
+	}
+
+	void setMap(int x,int y,int num)
+	{
+		map[x][y] = num;
+	}
+
+	void setMap(Position & pos,int num)
+	{
+		map[pos.x][pos.y] = num;
+	}
+
+	int getRoomCount()
+	{
+		return	room_list.size();
+	}
+
+	Rect getRoom(int number)
+	{
+		return	*(room_list[number]);
+	}
+
+	int getKind(Position & pos)
+	{
+		return map[pos.x][pos.y];
+	}
+
+	int	checkRoomNumber(int number)
+	{
+		if(number < 0 || number > getRoomCount()-1){
+			return -1;		// error
+		}
+		return 0;
+	}
+
+	int roomEnabler(int number)
+	{
+		if(checkRoomNumber(number) <0){
+			return -1;		// error
+		}
+ 		Rect *room = room_list[number];
+ 		for(int y = room->ly;y <= room->hy;y++){
+	 		for(int x = room->lx;x <= room->hx;x++){
+				disp_mask[x][y] = DISPLAY;
+			}
+		}
+		return 0;
+	}
+
+	int	getSizeOfRoom(int number)
+	{
+		if(checkRoomNumber(number) <0){
+			return -1;		// error
+		}
+		Rect *room = room_list[number];
+		return (room->hx-room->lx-1)*(room->hy-room->ly-1);
+	}
+
+	int	getRandomRoomNumber()
+	{
+		return random_int_range(0,getRoomCount()-1);
+	}
+
+	int	getDoors(int number,Doors & doors)
+	{
+		if(checkRoomNumber(number) <0){
+			return -1;		// error
+		}
+		Rect *room = room_list[number];
+		for (int i = room->lx; i <= room->hx; i++) {
+			if(map[i][room->ly] == ROOM_DOOR){
+				doors.push_back(Door(i,room->ly));
+			}
+			if(map[i][room->hy] == ROOM_DOOR){
+				doors.push_back(Door(i,room->hy));
+			}
+		}
+		for (int j = room->ly+1; j <= room->hy-1; j++) {
+			if(map[room->lx][j] == ROOM_DOOR){
+				doors.push_back(Door(room->lx,j));
+			}
+			if(map[room->hx][j] == ROOM_DOOR){
+				doors.push_back(Door(room->hx,j));
+			}
+		}
+		return 0;
+	}
+
+	void aroundEnabler(Position & pos)
+	{
+		int xadd[] = {-1, 0, 1,-1, 0, 1,-1, 0, 1};
+		int yadd[] = {-1,-1,-1, 0, 0, 0, 1, 1, 1};
+
+		for(int i=0;i<9;i++){
+			if( getKind(pos) > 0 ){
+				if(!(map[pos.x+xadd[i]][pos.y+yadd[i]] == ROOM_H
+					 || map[pos.x+xadd[i]][pos.y+yadd[i]] == ROOM_V)){
+					disp_mask[pos.x+xadd[i]][pos.y+yadd[i]] = DISPLAY;
+				}
+			}
+		}
+	}
+
+	void	allEnabler()
+	{
+		for (int j = 0; j < MAP_H; j++) {
+			for (int i = 0; i < MAP_W; i++) {
+				disp_mask[i][j] = DISPLAY;
+			}
+		}
+	}
+
+	int getRandomPositionInRoom(int number,Position & pos)
+	{
+		if(checkRoomNumber(number) <0){
+			return -1;		// error
+		}
+ 		Rect *room = room_list[number];
+		pos.x = random_int_range(room->lx+1 ,room->hx);
+		pos.y = random_int_range(room->ly+1 ,room->hy);
+
+		return getKind(pos);
+	}
+
+	// 0-XX:room number / -1:corridor	// -2:移動禁止エリア
+	int getRoomNumber(Position & pos)
+	{
+		switch(getKind(pos)){
+		case CORRIDOR:
+			return -1;					// -1:corridor
+		case DungeonMaker::GOLD:
+		case DungeonMaker::STAIRS:
+		case DungeonMaker::ROOM_FLOOR:
+		case DungeonMaker::ROOM_DOOR:
+			for(int i=0;i<getRoomCount();i++){
+				Rect *room = room_list[i];
+				if(		room->lx <= pos.x
+					&&	room->hx >= pos.x
+					&&	room->ly <= pos.y
+					&&	room->hy >= pos.y){
+					return i;			// 0-XX:room number
+				}
+			}
+			break;
+		default:
+			break;
+		}
+		return -2;						// -2:Can not move
+	}
+
+	Position	getStairsPosition()
+	{
+		return	stairs_pos;
+	}
+
+	void	itemAction(Position & pos,std::string & messaege,Player & player)
+	{
+		for (int k = 0 ; k < item_list.size(); k++) {
+			RogueItem *item = item_list[k];
+			if(item->isThere(pos.x,pos.y))
+			{
+				item->action(player);
+				messaege = item->getMessage();
+				return;
+			}
+		}
+		messaege = "";
+	}
+
+
+	bool	isThereItem(int x,int y,int & symbol)
+	{
+		for (int k = 0 ; k < item_list.size(); k++) {
+			RogueItem *item = item_list[k];
+			if(item->isThere(x,y))
+			{
+				symbol = item->getSymbol();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	Monster *getMonster(Position & pos)
+	{
+		for (int k = 0 ; k < monster_list.size(); k++) {
+			Monster *mon = monster_list[k];
+			if(mon->getHP() > 0 && mon->isThere(pos.x,pos.y) )
+			{
+				return mon;
+			}
+		}
+		return NULL;
+	}
+
+	bool isThereMonster(Position & pos)
+	{
+		for (int k = 0 ; k < monster_list.size(); k++) {
+			Monster *mon = monster_list[k];
+			if(mon->getHP() > 0 && mon->isThere(pos.x,pos.y)){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool	isThereMonster(int x,int y,int & symbol)
+	{
+		for (int k = 0 ; k < monster_list.size(); k++) {
+			Monster *mon = monster_list[k];
+			if(mon->isThere(x,y) && mon->getHP() > 0)
+			{
+				symbol = mon->getSymbol();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void	moveMonster(int currentRoomNumber,Player & player,std::string & message)
+	{
+		int xadd[] = { 0,-1, 0, 1};
+		int yadd[] = {-1, 0, 1, 0};
+//		      [0,-1]
+//		[-1,0][0, 0][1,0]
+//		      [0, 1]
+
+		for (int k = 0 ; k < monster_list.size(); k++) {
+			Monster *mon = monster_list[k];
+			if(currentRoomNumber != mon->roomNumber)
+				continue;
+			Position pos = mon->getPosition();
+			bool	attack=false;
+			for(int i=0;i<4;i++){
+				if(player.isThere(pos.x + xadd[i],pos.y + yadd[i])){
+					player.attack(*mon);
+					message = "モンスターの攻撃！！！";
+					attack=true;
+					break;
+				}
+			}
+			if(attack==false){
+				for(int i=0;i<4;i++){
+					int arrow = mon->arrow;
+					int kind = map[pos.x+xadd[arrow]][pos.y+yadd[arrow]];
+					if(kind == ROOM_H || kind == ROOM_V || kind == ROOM_DOOR){
+						mon->arrow++;
+						if(mon->arrow>3){
+							mon->arrow = 0;
+						}
+					}
+					else{
+						pos.x += xadd[arrow];
+						pos.y += yadd[arrow];
+						if(!isThereMonster(pos)){
+							mon->move(pos);
+						}
+						break;
+					}
+				}
+			}
+		}
+	}
+
+private:
+	enum {
+		MINIMUM_ROOM_SIZE = 4,
+		MARGIN_BETWEEN_AREA_ROOM = 2,
+		MINIMUM_AREA_SIZE = MINIMUM_ROOM_SIZE + (MARGIN_BETWEEN_AREA_ROOM * 2),
+		CONNECT_VERTICAL = 0,
+		CONNECT_HORIZONAL = 1,
+	};
+
+	std::vector<Area *>		area_list;
+	std::vector<Rect *>		room_list;
+	std::vector<Connect *>	connect_list;
+	std::vector<Monster *>	monster_list;
+	std::vector<RogueItem*>	item_list;
+	int						MAP_W;
+	int						MAP_H;
+	DungeonMap				map;
+	DungeonMap				disp_mask;
+	Position				stairs_pos;
+
+	void	discardAll()
+	{
+		discard();
+		discardRoom();
+	}
+	void	discardRoom()
+	{
+		for (int k = 0 ; k < room_list.size(); k++) {
+			Rect *room = room_list[k];
+			delete	room;
+		}
+		room_list.clear();
+	}
+	void	discard()
+	{
+		for (int k = 0 ; k < area_list.size(); k++) {
+			Area *area = area_list[k];
+			delete	area;
+		}
+		area_list.clear();
+		for (int k = 0 ; k < connect_list.size(); k++) {
+			Connect *connect = connect_list[k];
+			delete	connect;
+		}
+		connect_list.clear();
+	}
+
+	void	init()
+	{
+		discardAll();
+		for (int j = 0; j < MAP_H; j++) {
+			for (int i = 0; i < MAP_W; i++) {
+				map[i][j] = OUTER;
+				disp_mask[i][j] = HIDDEN;
+			}
+		}
+	}
+
+	int random_int_range(int min,int max)
+	{
+		int	diff = max-min;
+		if(diff <= 0){
+			return min;
+		}
+
+		return min+rand()%diff;
+	}
+
+	void room_make()
+	{
+		int x, y, w, h;
+		for (int k = 0 ; k < area_list.size(); k++) {
+			Area *area = area_list[k];
+			w = random_int_range(MINIMUM_ROOM_SIZE, area->hx - area->lx - (MARGIN_BETWEEN_AREA_ROOM * 2) + 1);
+			h = random_int_range(MINIMUM_ROOM_SIZE, area->hy - area->ly - (MARGIN_BETWEEN_AREA_ROOM * 2) + 1);
+			x = random_int_range(area->lx + MARGIN_BETWEEN_AREA_ROOM, area->hx - MARGIN_BETWEEN_AREA_ROOM - w + 1);
+			y = random_int_range(area->ly + MARGIN_BETWEEN_AREA_ROOM, area->hy - MARGIN_BETWEEN_AREA_ROOM - h + 1);
+			area->room = room_add(x, y, x + w, y + h);
+		}
+	}
+
+	void line(int x0, int y0, int x1, int y1)
+	{
+		int min_x = MIN(x0, x1);
+		int max_x = MAX(x0, x1);
+		int min_y = MIN(y0, y1);
+		int max_y = MAX(y0, y1);
+		assert((min_x >= 0) && (max_x < MAP_W) && (min_y >= 0) && (max_y < MAP_H));
+		if ((x0 <= x1) && (y0 >= y1)) {
+			for (int i = min_x; i <= max_x; i++)
+				map[i][max_y] = CORRIDOR;
+			for (int j = min_y; j <= max_y; j++)
+				map[max_x][j] = CORRIDOR;
+		}
+		else if ((x0 > x1) && (y0 > y1)) {
+			for (int i = min_x; i <= max_x; i++)
+				map[i][min_y] = CORRIDOR;
+			for (int j = min_y; j <= max_y; j++)
+				map[max_x][j] = CORRIDOR;
+		}
+		else if ((x0 > x1) && (y0 <= y1)) {
+			for (int i = min_x; i <= max_x; i++)
+				map[i][min_y] = CORRIDOR;
+			for (int j = min_y; j <= max_y; j++)
+				map[min_x][j] = CORRIDOR;
+		}
+		else if ((x0 <= x1) && (y0 < y1)) {
+			for (int i = min_x; i <= max_x; i++)
+				map[i][max_y] = CORRIDOR;
+			for (int j = min_y; j <= max_y; j++)
+				map[min_x][j] = CORRIDOR;
+		}
+	}
+
+	void area_split(Area *area_parent)
+	{
+		if (random_int_range(0, 64) == 0) {
+		    area_parent->done_split_v = true;
+		    area_parent->done_split_h = true;
+		}
+		if (area_parent->hy - area_parent->ly <= MINIMUM_AREA_SIZE * 2) {
+			area_parent->done_split_v = true;
+		}
+		if (area_parent->hx - area_parent->lx <= MINIMUM_AREA_SIZE * 2) {
+			area_parent->done_split_h = true;
+		}
+		if ((area_parent->done_split_v) &&	(area_parent->done_split_h)) {
+			return;
+		}
+		Area *area_child = area_add(area_parent->lx, area_parent->ly,
+								area_parent->hx, area_parent->hy);
+		if (area_parent->done_split_v == false) {
+			int split_coord_y;
+			split_coord_y = random_int_range(area_parent->ly + MINIMUM_AREA_SIZE, area_parent->hy - MINIMUM_AREA_SIZE);
+			area_parent->hy = split_coord_y;
+			area_child->ly = split_coord_y;
+			area_parent->done_split_v = true;
+			area_child->done_split_v = true;
+			connect_add(CONNECT_VERTICAL, area_parent, area_child);
+			area_split(area_parent);
+			area_split(area_child);
+			return;
+		}
+		if (area_parent->done_split_h == false) {
+			int split_coord_x;
+			split_coord_x = random_int_range(area_parent->lx + MINIMUM_AREA_SIZE, area_parent->hx - MINIMUM_AREA_SIZE);
+			area_parent->hx = split_coord_x;
+			area_child->lx = split_coord_x;
+			area_parent->done_split_h = true;
+			area_child->done_split_h = true;
+			connect_add(CONNECT_HORIZONAL, area_parent, area_child);
+			area_split(area_parent);
+			area_split(area_child);
+			return;
+		}
+	}
+
+	void connect_more()
+	{
+		std::vector<std::vector<Area *>>	areamap;
+		for (int j = 0; j < MAP_W; j++) {
+			areamap.push_back(std::vector<Area *>(MAP_H,NULL));
+		}
+		for (int k = 0 ; k < area_list.size(); k++) {
+			Area *area = area_list[k];
+			for (int i = area->lx; i < area->hx; i++) {
+				for (int j = area->ly; j < area->hy; j++) {
+					areamap[i][j] = area;
+				}
+			}
+		}
+		for (int i = 0; i < MAP_W - 2; i++) {
+			for (int j = 0; j < MAP_H - 2; j++) {
+				assert(areamap[i][j] != NULL);
+				assert(areamap[i + 1][j] != NULL);
+				assert(areamap[i][j + 1] != NULL);
+				if (areamap[i][j] != areamap[i][j + 1]) {
+					if (random_int_range(0, 64) == 0) {
+							connect_add(CONNECT_VERTICAL, areamap[i][j], areamap[i][j + 1]);
+					}
+				}
+				if (areamap[i][j] != areamap[i + 1][j]) {
+					if (random_int_range(0, 64) == 0) {
+						connect_add(CONNECT_HORIZONAL, areamap[i][j], areamap[i + 1][j]);
+					}
+				}
+			}
+		}
+	}
+
+	Rect *room_add(int lx, int ly, int hx, int hy)
+	{
+		Rect *room = new Rect(lx,ly,hx,hy);
+
+		room_list.push_back(room);
+
+		return(room);
+	}
+
+	Area *area_add(int lx, int ly, int hx, int hy)
+	{
+		Area *area = new Area(lx,ly,hx,hy);
+
+		area_list.push_back(area);
+
+	 	return(area);
+	}
+
+	Connect *connect_add(int v_or_h, Area *area0, Area *area1)
+	{
+		Connect *connect = new Connect(v_or_h,area0,area1);
+
+		connect_list.push_back(connect);
+
+		return(connect);
+	}
+
+	void deploy()
+	{
+		int i, j;
+
+		for (int k = 0 ; k < room_list.size(); k++) {
+			Rect *room = room_list[k];
+			for (i = room->lx+1; i <= room->hx-1; i++) {
+				for (j = room->ly+1; j <= room->hy-1; j++) {
+					map[i][j] = ROOM_FLOOR;
+				}
+			}
+			for (i = room->lx; i <= room->hx; i++) {
+				map[i][room->ly] = ROOM_H;
+				map[i][room->hy] = ROOM_H;
+			}
+			for (j = room->ly+1; j <= room->hy-1; j++) {
+				map[room->lx][j] = ROOM_V;
+				map[room->hx][j] = ROOM_V;
+			}
+			/////////////////////////////////////////////
+			// Debug
+			#ifdef	DEBUG_DISP_ROOM_NUMBER
+			map[room->lx][room->ly] = DEBUG_DISP_ROOM_NUMBER+k;
+			#endif
+			/////////////////////////////////////////////
+		}
+		int c0x, c0y, c1x, c1y;
+		for (int k = 0 ; k < connect_list.size(); k++) {
+			Connect *connect = connect_list[k];
+			switch (connect->v_or_h) {
+			case CONNECT_HORIZONAL:
+				assert(connect->area0->hx == connect->area1->lx);
+				c0x = connect->area0->hx;
+				c0y = random_int_range(connect->area0->room->ly + 1, connect->area0->room->hy);
+				c1x = connect->area1->lx;
+				c1y = random_int_range(connect->area1->room->ly + 1, connect->area1->room->hy);
+				line(c0x, c0y, c1x, c1y);
+				line(connect->area0->room->hx, c0y, c0x, c0y);
+				line(connect->area1->room->lx, c1y, c1x, c1y);
+				break;
+			case CONNECT_VERTICAL:
+				assert(connect->area0->hy == connect->area1->ly);
+				c0x = random_int_range(connect->area0->room->lx + 1, connect->area0->room->hx);
+				c0y = connect->area0->hy;
+				c1x = random_int_range(connect->area1->room->lx + 1, connect->area1->room->hx);
+				c1y = connect->area1->ly;
+				line(c0x, c0y, c1x, c1y);
+				line(c0x, connect->area0->room->hy, c0x, c0y);
+				line(c1x, connect->area1->room->ly, c1x, c1y);
+				break;
+			}
+		}
+		for (int k = 0 ; k < room_list.size(); k++) {
+			Rect *room = room_list[k];
+			for (i = room->lx; i <= room->hx; i++) {
+				if(map[i][room->ly] == CORRIDOR)
+					map[i][room->ly] = ROOM_DOOR;
+				if(map[i][room->hy] == CORRIDOR)
+					map[i][room->hy] = ROOM_DOOR;
+			}
+			for (j = room->ly+1; j <= room->hy-1; j++) {
+				if(map[room->lx][j] == CORRIDOR)
+					map[room->lx][j] = ROOM_DOOR;
+				if(map[room->hx][j] == CORRIDOR)
+					map[room->hx][j] = ROOM_DOOR;
+			}
+		}
+		discard();
+	}
+
+	void	make_stairs()
+	{
+//		int	room = 0;
+		int room = getRandomRoomNumber();
+		getRandomPositionInRoom(room,stairs_pos);
+		setMap(stairs_pos,DungeonMaker::STAIRS);
+	}
+
+	void	placeGolds()
+	{
+		for(int i=0;i<getRoomCount();i++){
+			Rect *room = room_list[i];
+			int size = getSizeOfRoom(i);
+			std::cout << size << " ";
+			int	maxCount = size*3/100;
+			maxCount = random_int_range(0,maxCount);
+			for(int j=0;j<maxCount;j++){
+				Position pos;
+				getRandomPositionInRoom(i,pos);
+				if( getKind(pos) == DungeonMaker::ROOM_FLOOR){
+					std::string	str = "金塊を発見！";
+					item_list.push_back(new Gold(DungeonMaker::GOLD,pos,str,random_int_range(0,3)));
+				}
+			}
+		}
+	}
+
+	void placeWeapons()
+	{
+		for(int i=0;i<getRoomCount();i++){
+			Rect *room = room_list[i];
+			int size = getSizeOfRoom(i);
+			std::cout << size << " ";
+			int maxCount = size*3/100;
+			maxCount = random_int_range(0,maxCount);
+			for(int j=0;j<maxCount;j++){
+				Position pos;
+				getRandomPositionInRoom(i,pos);
+				if( getKind(pos) == DungeonMaker::ROOM_FLOOR){
+					std::string	str = "攻撃力アップ！";
+					item_list.push_back(new Weapon(DungeonMaker::WEPON,pos,str,random_int_range(0,4)));
+				}
+			}
+		}
+	}
+
+	void	placeFoods()
+	{
+		for(int i=0;i<getRoomCount();i++){
+			Rect *room = room_list[i];
+			int size = getSizeOfRoom(i);
+			std::cout << size << " ";
+			int	maxCount = size*3/100;
+			maxCount = random_int_range(0,maxCount);
+			for(int j=0;j<maxCount;j++){
+				Position pos;
+				getRandomPositionInRoom(i,pos);
+				if( getKind(pos) == DungeonMaker::ROOM_FLOOR){
+					std::string	str = "体力を回復！";
+					item_list.push_back(new Food(DungeonMaker::FOOD,pos,str,random_int_range(0,5)));
+				}
+			}
+		}
+	}
+	void	placeMonsters()
+	{
+		int	roomCount = getRoomCount();
+		int *monsterCount = new int [roomCount];
+		for(int i=0;i < roomCount;i++){
+			monsterCount[i] = 0;
+		}
+		for(int i=0;i < roomCount*3;i++){
+			int roomNumber = getRandomRoomNumber();
+			if(monsterCount[roomNumber] < 3){
+				Rect *room = room_list[roomNumber];
+				Position	pos;
+				getRandomPositionInRoom(roomNumber,pos);
+				if( getKind(pos) == DungeonMaker::ROOM_FLOOR){
+					int monsterIndex = random_int_range(0 ,4);
+					int	arrow = random_int_range(0,4);
+					monster_list.push_back(new Monster(MONSTER_A+monsterIndex,pos,roomNumber,arrow));
+					monsterCount[roomNumber]++;
+					allMonsterCount++;
+				}
+			}
+		}
+		delete [] monsterCount;
+	}
+};
+
+class Dungeon{
+public:
+	static	const	int 	MAX_FLOOR_COUNT	= 3;
+	static	const	int 	MAX_DENGEON_WIDTH  = 28;
+	static	const	int 	MAX_DENGEON_HEIGHT = 100;
+
+	Dungeon()
+	{
+
+		srand(time(NULL));
+		currentFloorNumber = 0;
+		for(int i=0;i<MAX_FLOOR_COUNT;i++){
+			floor[i]=NULL;
+		}
+		floor[currentFloorNumber] = new DungeonMaker(MAX_DENGEON_WIDTH,MAX_DENGEON_HEIGHT);
+		floor[currentFloorNumber]->generate();
+		currentRoomNumber = 0;
+		moveState = 0;
+	}
+
+	~Dungeon()
+	{
+		for(int i=0;i<MAX_FLOOR_COUNT;i++){
+			if(floor[i] != NULL){
+				delete floor[i];
+			}
+		}
+	}
+
+	Position	init()
+	{
+		Position	pos;
+//		floor[currentFloorNumber]->allEnabler();
+		floor[currentFloorNumber]->roomEnabler(currentRoomNumber);
+		floor[currentFloorNumber]->getRandomPositionInRoom(currentRoomNumber,pos);
+
+		return	pos;
+	}
+
+	int	move(Player & player)
+	{
+		Position nextPos  = player.getPosition();
+		int		key_state = moveKey(nextPos);
+
+		if(key_state == ESC_KEY){
+			return ESC_KEY;
+		}
+		else if(key_state == '>'){
+			int kind = floor[currentFloorNumber]->getKind(nextPos);
+			if(kind == DungeonMaker::STAIRS){
+				if(currentFloorNumber< MAX_FLOOR_COUNT){
+					currentFloorNumber++;
+					if(floor[currentFloorNumber] == NULL){
+						floor[currentFloorNumber] = new DungeonMaker(MAX_DENGEON_WIDTH,MAX_DENGEON_HEIGHT);
+						floor[currentFloorNumber]->generate();
+					}
+					Position pos = floor[currentFloorNumber]->getStairsPosition();
+					currentRoomNumber = floor[currentFloorNumber]->getRoomNumber(pos);
+					player.move(pos);
+					floor[currentFloorNumber]->roomEnabler(currentRoomNumber);
+				}
+			}
+		}
+		else {
+			int kind = floor[currentFloorNumber]->getKind(nextPos);
+			Monster *mon = floor[currentFloorNumber]->getMonster(nextPos);
+			if(mon != NULL){
+				top_messaege = "Attack monster !!";
+				if(mon->attack(player)){
+					top_messaege = "Killed monster !!";
+					floor[currentFloorNumber]->allMonsterCount--;
+				}
+			}
+			else if(isMove(kind)){
+				floor[currentFloorNumber]->itemAction(nextPos,top_messaege,player);
+				player.move(nextPos);
+				floor[currentFloorNumber]->aroundEnabler(nextPos);
+				if(moveState == 0 && kind == DungeonMaker::CORRIDOR){
+					moveState = 1;
+				}
+				else if(moveState == 1 && kind == DungeonMaker::ROOM_DOOR){
+					moveState = 0;
+					currentRoomNumber = floor[currentFloorNumber]->getRoomNumber(nextPos);
+					floor[currentFloorNumber]->roomEnabler(currentRoomNumber);
+				}
+			}
+		}
+		floor[currentFloorNumber]->moveMonster(currentRoomNumber,player,top_messaege);
+
+		return 0;
+	}
+
+	bool	isMove(int kind)
+	{
+		switch(kind){
+		case DungeonMaker::ROOM_V:
+		case DungeonMaker::ROOM_H:
+		case DungeonMaker::OUTER:
+			return	false;
+		default:
+			break;
+		}
+		return true;
+	}
+
+	int	inputKey()
+	{
+		int val = _getch();
+		if(val == 0xe0){
+			val = _getch();
+			switch(val){
+			case 0x50:
+				val = DOWN_KEY;
+				break;
+			case 0x48:
+				val = UP_KEY;
+				break;
+			case 0x4d:
+				val = RIGHT_KEY;
+				break;
+			case 0x4b:
+				val = LEFT_KEY;
+				break;
+			default:
+				break;
+			}
+		}
+		return val;
+	}
+
+	int	moveKey(Position & pos)
+	{
+		int val = inputKey();
+		if(val != ESC_KEY){
+			switch(val){
+			case DOWN_KEY:
+				pos.y++;
+				break;
+			case UP_KEY:
+				pos.y--;
+				break;
+			case RIGHT_KEY:
+				pos.x++;
+				break;
+			case LEFT_KEY:
+				pos.x--;
+				break;
+			default:
+				break;
+			}
+		}
+		return val;
+	}
+
+	void	gemeOver(Player & player)
+	{
+		system("cls");
+		std::cout << "Game over !!!" << std::endl;
+	}
+
+	void print(Player & player)
+	{
+		int width  = floor[currentFloorNumber]->getWidth();
+		int	height = floor[currentFloorNumber]->getHight();
+		DungeonMap & map  = floor[currentFloorNumber]->getMap();
+		DungeonMap & disp = floor[currentFloorNumber]->getDispMap();
+
+		system("cls");
+		std::cout << top_messaege << std::endl;
+		for (int j = 0; j < height; j++) {
+			for (int i = 0; i < width; i++) {
+				int symbol = DungeonMaker::OUTER;
+				if(disp[i][j] == DungeonMaker::DISPLAY){
+					if(floor[currentFloorNumber]->isThereMonster(i,j,symbol))
+					{
+						//
+					}
+					else if(floor[currentFloorNumber]->isThereItem(i,j,symbol))
+					{
+					}
+					else if(player.isThere(i,j)){
+						symbol = player.getSymbol();
+					}
+					else{
+						symbol = map[i][j];
+					}
+				}
+				symbolPrint(symbol);
+			}
+			std::cout << std::endl;
+		}
+
+		char	str[256];
+		sprintf(str,"Level:%2d  Gold:%2d  Hp: %2d(%2d)  Str:%2d(%2d)  R:%d State:%d M:%d",
+			currentFloorNumber+1,
+			player.gold,
+			player.getHP(),
+			player.getMaxHP(),
+			player.getstr(),
+			player.getMaxstr(),
+			currentRoomNumber,
+			moveState,
+			floor[currentFloorNumber]->allMonsterCount);
+//		sprintf(str,"Level:%2d  Gold:%2d      Hp: 12(12)  Str: 16(16)  Arm: 4  Exp: 1/0",floor+1,gold);
+		std::cout << str << std::endl;
+	}
+
+private:
+	DungeonMaker	*floor[MAX_FLOOR_COUNT];
+	int				currentFloorNumber;
+	int				currentRoomNumber;
+	int				moveState;				// 0:in ROOM 1:CORRIDOR
+	std::string		top_messaege;
+
+	void symbolPrint(int symbol)
+	{
+		switch(symbol){
+		case DungeonMaker::CORRIDOR:
+			std::cout << "#";
+			break;
+		case DungeonMaker::ROOM_V:
+			std::cout << "|";
+			break;
+		case DungeonMaker::ROOM_H:
+			std::cout << "-";
+			break;
+		case DungeonMaker::ROOM_FLOOR:
+			std::cout << ".";
+			break;
+		case DungeonMaker::ROOM_DOOR:
+			std::cout << "+";
+			break;
+		case DungeonMaker::PLAYER:
+			std::cout << "@";
+			break;
+		case DungeonMaker::GOLD:
+			std::cout << "*";
+			break;
+		case DungeonMaker::FOOD:
+			std::cout << ":";
+			break;
+		case DungeonMaker::WEPON:
+			std::cout << ")";
+			break;
+		case DungeonMaker::STAIRS:
+			std::cout << "%";
+			break;
+		case DungeonMaker::MONSTER_A:
+			std::cout << "A";
+			break;
+		case DungeonMaker::MONSTER_B:
+			std::cout << "B";
+			break;
+		case DungeonMaker::MONSTER_C:
+			std::cout << "C";
+			break;
+		case DungeonMaker::MONSTER_D:
+			std::cout << "D";
+			break;
+		default:
+#ifdef	DEBUG_DISP_ROOM_NUMBER
+			if(symbol >= DEBUG_DISP_ROOM_NUMBER)
+			{
+				printf("%X",symbol-DEBUG_DISP_ROOM_NUMBER);
+			}
+			else{
+				std::cout << " ";
+			}
+#else
+			std::cout << " ";
+#endif
+			break;
+		}
+	}
+};
+
+int main()
+{
+	Dungeon	dungeon;
+
+	Position	pos = dungeon.init();
+	Player	player(DungeonMaker::PLAYER,pos);
+
+	while(1){
+		if(player.getHP() == 0){
+			dungeon.gemeOver(player);
+		}
+		else{
+			dungeon.print(player);
+		}
+		if(ESC_KEY == dungeon.move(player)){
+			break;
+		}
+	}
+
+	return 0;
+}
